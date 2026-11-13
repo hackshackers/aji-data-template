@@ -77,14 +77,17 @@ def main():
     fields = ["Award ID", "Recipient Name", "Recipient UEI", "Award Amount", "Base Obligation Date",
               "Awarding Sub Agency", "Description", "generated_internal_id"]
 
-    # 1. Every new contract from the agency in the window
-    allnew = search({"award_type_codes": CONTRACTS, "agencies": ag, "time_period": window}, fields)
-    big = [r for r in allnew if (r["Award Amount"] or 0) >= a.floor and r["Recipient UEI"]]
+    # 1. How many new contracts the agency awarded in the window (a count, not a download)
+    base = {"award_type_codes": CONTRACTS, "agencies": ag, "time_period": window}
+    total = call("/search/spending_by_award_count/", {"filters": base})["results"]["contracts"]
+
+    # 2. Only the contracts at or above the floor (the search applies the floor, so big agencies stay fast)
+    over = dict(base, award_amounts=[{"lower_bound": a.floor}])
+    big = [r for r in search(over, fields) if (r["Award Amount"] or 0) >= a.floor and r["Recipient UEI"]]
     ueis = sorted({r["Recipient UEI"] for r in big})
 
-    # 2. Which of those were not competed (one extra search)
-    nc = search({"award_type_codes": CONTRACTS, "agencies": ag, "time_period": window,
-                 "extent_competed_type_codes": NOT_COMPETED}, ["Award ID", "Award Amount", "generated_internal_id"])
+    # Which of those were not competed (one extra search)
+    nc = search(dict(over, extent_competed_type_codes=NOT_COMPETED), ["Award ID", "Award Amount", "generated_internal_id"])
     not_competed = {r["generated_internal_id"] for r in nc}
 
     # 3. For each company: any contract with this agency in the prior years?
@@ -127,9 +130,9 @@ def main():
     secs = round(time.time() - t0)
 
     write_csv(leads)
-    write_md(agency, a, start, today, prior_start, allnew, big, ueis, leads)
-    write_page(agency, a, start, today, prior_start, prior_end, allnew, big, ueis, leads, secs)
-    print(f"{agency}: {len(allnew)} new contracts; {len(big)} at ${a.floor:,.0f} or more, to {len(ueis)} companies; "
+    write_md(agency, a, start, today, prior_start, total, big, ueis, leads)
+    write_page(agency, a, start, today, prior_start, prior_end, total, big, ueis, leads, secs)
+    print(f"{agency}: {total:,} new contracts; {len(big)} at ${a.floor:,.0f} or more, to {len(ueis)} companies; "
           f"{len(new_ueis)} companies new to the agency, {len(leads)} contracts; "
           f"{sum(r['not_competed'] for r in leads)} not competed; {sum(r['same_name'] for r in leads)} same-name flags. "
           f"Took {secs} seconds. Wrote leads.md, leads.csv and index.html.")
@@ -174,12 +177,12 @@ def md(v):
     return " ".join(str(v or "").split()).replace("|", "/")
 
 
-def write_md(agency, a, start, today, prior_start, allnew, big, ueis, leads):
+def write_md(agency, a, start, today, prior_start, total, big, ueis, leads):
     nc = sum(r["not_competed"] for r in leads)
     out = [f"# New money at {agency}", "",
            f"Contracts of ${a.floor:,.0f} or more that {agency} awarded from {fmt_date(start.isoformat())} through {fmt_date(today.isoformat())} "
            f"to companies with no contract from the agency since {fmt_date(prior_start.isoformat())}. Biggest first. **These are leads to check, not findings.**", "",
-           f"{len(allnew)} new contracts in {a.days} days; {len(big)} were ${a.floor:,.0f} or more, to {len(ueis)} companies. "
+           f"{total:,} new contracts in {a.days} days; {len(big)} were ${a.floor:,.0f} or more, to {len(ueis)} companies. "
            f"{len(set(r['Recipient UEI'] for r in leads))} of those companies look new to the agency; {nc} of their contracts were not competed. "
            f"Data from USAspending.gov, pulled {fmt_date(today.isoformat())}.", "",
            "| Company | Amount | Awarded | What it's for | Flags | Check it |", "|---|--:|---|---|---|---|"]
@@ -210,7 +213,7 @@ def fmt_date(s):
     return d.strftime("%b. %-d, %Y").replace("May.", "May").replace("Jun.", "June").replace("Jul.", "July")
 
 
-def write_page(agency, a, start, today, prior_start, prior_end, allnew, big, ueis, leads, secs):
+def write_page(agency, a, start, today, prior_start, prior_end, total, big, ueis, leads, secs):
     e = html.escape
     rows = []
     for r in leads:
@@ -234,7 +237,7 @@ th,td{{border-bottom:1px solid #ddd;padding:.5rem;text-align:left;vertical-align
 </style></head><body>
 <h1>New money at {e(agency)}</h1>
 <p class="dek">Contracts of ${a.floor:,.0f} or more that {e(agency)} awarded from {e(fmt_date(start.isoformat()))} through {e(fmt_date(today.isoformat()))} to companies with no contract from the agency in the {a.years} years before. Biggest first. These are leads to check, not findings.</p>
-<div class="box"><strong>What this run found.</strong> {len(allnew)} new contracts in {a.days} days. {len(big)} were ${a.floor:,.0f} or more, to {len(ueis)} companies. {len(set(r['Recipient UEI'] for r in leads))} of those companies had no contract with the agency since {e(fmt_date(prior_start.isoformat()))}; they got the {len(leads)} contracts below. {nc} of them were not competed. Data from USAspending.gov, pulled {e(fmt_date(today.isoformat()))} in {secs} seconds.</div>
+<div class="box"><strong>What this run found.</strong> {total:,} new contracts in {a.days} days. {len(big)} were ${a.floor:,.0f} or more, to {len(ueis)} companies. {len(set(r['Recipient UEI'] for r in leads))} of those companies had no contract with the agency since {e(fmt_date(prior_start.isoformat()))}; they got the {len(leads)} contracts below. {nc} of them were not competed. Data from USAspending.gov, pulled {e(fmt_date(today.isoformat()))} in {secs} seconds.</div>
 <div class="wrap"><table><thead><tr><th>Company</th><th>Amount</th><th>Awarded</th><th>Office</th><th>What it's for</th><th>Check it</th></tr></thead><tbody>
 {''.join(rows) or '<tr><td colspan="6">No contracts matched.</td></tr>'}
 </tbody></table></div>
