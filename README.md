@@ -4,10 +4,10 @@ Finds companies getting their first contract from a federal agency, using public
 
 In a Claude Code session on this repository, type: `Use the new-money skill for` and the agency on your beat, such as the Department of Agriculture or USDA.
 
-Claude runs a ready-made script and saves the results here:
+Claude runs a ready-made script, shows you the results as a private page in your Claude session and saves them here:
 
-- **leads.md**: the leads, readable right on GitHub
+- **index.html**: the results page Claude shows you
+- **leads.md**: the same leads, readable right on GitHub
 - **leads.csv**: the same rows, for a spreadsheet
-- **index.html**: a web page version, if you ever make this repository public and turn on GitHub Pages
 
 These are leads to check, not findings.
